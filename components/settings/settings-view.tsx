@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { useTheme } from "next-themes"
 import {
   BellIcon,
@@ -94,6 +95,7 @@ const NOTIFICATION_OPTIONS = [
 ]
 
 export function SettingsView() {
+  const router = useRouter()
   const { theme, setTheme } = useTheme()
   const [profile, setProfile] = React.useState({
     name: "",
@@ -103,6 +105,7 @@ export function SettingsView() {
     initials: "U",
   })
   const [savingProfile, setSavingProfile] = React.useState(false)
+  const [exporting, setExporting] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [confirmText, setConfirmText] = React.useState("")
@@ -121,6 +124,8 @@ export function SettingsView() {
           user.email?.split("@")[0] ||
           "User"
         const email = user.email || ""
+        const headline = (user.user_metadata?.headline as string) || "Professional"
+        const location = (user.user_metadata?.location as string) || "Remote"
         const initials =
           name
             .split(" ")
@@ -133,8 +138,8 @@ export function SettingsView() {
         setProfile({
           name,
           email,
-          headline: "Professional",
-          location: "Remote",
+          headline,
+          location,
           initials,
         })
       }
@@ -154,9 +159,16 @@ export function SettingsView() {
     setSavingProfile(true)
     const formData = new FormData(e.currentTarget)
     const name = String(formData.get("name") ?? "").trim()
+    const headline = String(formData.get("headline") ?? "").trim()
+    const location = String(formData.get("location") ?? "").trim()
+
     const supabase = createClient()
     const { error } = await supabase.auth.updateUser({
-      data: { full_name: name },
+      data: {
+        full_name: name,
+        headline: headline || "Professional",
+        location: location || "Remote",
+      },
     })
 
     setSavingProfile(false)
@@ -169,6 +181,8 @@ export function SettingsView() {
     setProfile((prev) => ({
       ...prev,
       name,
+      headline: headline || "Professional",
+      location: location || "Remote",
       initials:
         name
           .split(" ")
@@ -182,16 +196,68 @@ export function SettingsView() {
     toast.success("Profile saved", { description: "Your changes have been updated." })
   }
 
-  function confirmDelete() {
+  async function exportData() {
+    setExporting(true)
+    try {
+      const res = await fetch("/api/user/export")
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || "Failed to export data.")
+      }
+
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `resume-iq-export-${new Date().toISOString().slice(0, 10)}.json`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+
+      toast.success("Export complete", {
+        description: "Your data has been downloaded as a JSON archive.",
+      })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to export data."
+      toast.error(message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function confirmDelete() {
     setDeleting(true)
-    setTimeout(() => {
-      setDeleting(false)
+    try {
+      const res = await fetch("/api/user/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: confirmText }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to delete account.")
+      }
+
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      sessionStorage.clear()
+      localStorage.clear()
+
       setDeleteOpen(false)
       setConfirmText("")
-      toast.success("Account scheduled for deletion", {
-        description: "This is a demo — no data was removed.",
+      toast.success("Account deleted", {
+        description: "All your data has been permanently removed.",
       })
-    }, 900)
+      router.replace("/login")
+      router.refresh()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to delete account."
+      toast.error(message)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -408,14 +474,20 @@ export function SettingsView() {
               </p>
               <Button
                 variant="outline"
-                onClick={() =>
-                  toast.success("Export started", {
-                    description: "We'll email you a download link when it's ready.",
-                  })
-                }
+                onClick={exportData}
+                disabled={exporting}
               >
-                <DownloadIcon data-icon="inline-start" />
-                Export data
+                {exporting ? (
+                  <>
+                    <LoaderIcon data-icon="inline-start" className="animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <DownloadIcon data-icon="inline-start" />
+                    Export data
+                  </>
+                )}
               </Button>
             </CardContent>
           </Card>
@@ -468,7 +540,7 @@ export function SettingsView() {
                       {deleting ? (
                         <>
                           <LoaderIcon data-icon="inline-start" className="animate-spin" />
-                          Deleting
+                          Deleting...
                         </>
                       ) : (
                         "Delete account"
