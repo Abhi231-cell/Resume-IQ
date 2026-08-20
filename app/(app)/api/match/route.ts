@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { GoogleGenAI } from "@google/genai"
 import { createClient } from "@/lib/supabase/server"
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit"
 import type { JobMatchResult, ResumeAnalysis } from "@/lib/types"
 
 const apiKey = process.env.GEMINI_API_KEY
@@ -80,6 +81,28 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "You must be signed in to perform job matching." },
         { status: 401 }
+      )
+    }
+
+    // Rate Limiting: max 15 requests per 5 minutes (300s)
+    const clientKey = getClientIdentifier(request, user.id)
+    const rateCheck = checkRateLimit({
+      key: `match:${clientKey}`,
+      limit: 15,
+      windowSeconds: 300,
+    })
+
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: `Rate limit exceeded. Maximum 15 job matches per 5 minutes. Please try again in ${rateCheck.resetInSeconds} seconds.`,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateCheck.resetInSeconds),
+          },
+        }
       )
     }
 

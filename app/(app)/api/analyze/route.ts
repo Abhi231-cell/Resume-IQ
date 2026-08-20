@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit";
 import type { ResumeAnalysis, ScoreCategory } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -116,6 +117,50 @@ export async function POST(request: Request) {
       );
     }
 
+    // Rate Limiting: max 5 requests per 10 minutes (600s)
+    const clientKey = getClientIdentifier(request, user.id);
+    const rateCheck = checkRateLimit({
+      key: `analyze:${clientKey}`,
+      limit: 5,
+      windowSeconds: 600,
+    });
+
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: `Rate limit exceeded. Maximum 5 analyses per 10 minutes. Please try again in ${rateCheck.resetInSeconds} seconds.`,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateCheck.resetInSeconds),
+          },
+        }
+      );
+    }
+
+    // Database-backed check for distributed serverless multi-instance safety
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { count: recentCount } = await supabase
+      .from("resumes")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("created_at", tenMinutesAgo);
+
+    if (typeof recentCount === "number" && recentCount >= 5) {
+      return NextResponse.json(
+        {
+          error: "Rate limit exceeded. Maximum 5 analyses per 10 minutes. Please wait a few minutes before analyzing another resume.",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "600",
+          },
+        }
+      );
+    }
+
     // Check API key
     if (!apiKey) {
       return NextResponse.json(
@@ -216,11 +261,21 @@ The JSON must follow this exact structure:
       "score": 0
     }
   ],
-  "strengths": [],
-  "criticalIssues": [],
-  "recommendations": [],
-  "missingKeywords": [],
-  "skillGaps": [],
+  "strengths": [
+    "string"
+  ],
+  "criticalIssues": [
+    "string"
+  ],
+  "recommendations": [
+    "string"
+  ],
+  "missingKeywords": [
+    "string"
+  ],
+  "skillGaps": [
+    "string"
+  ],
   "weakBullets": [
     {
       "id": "string",
@@ -232,33 +287,19 @@ The JSON must follow this exact structure:
 }
 
 Rules:
-
-1. overallScore must be a number between 0 and 100.
-
-2. Every metric score must be between 0 and 100.
-
-3. Analyze the actual uploaded resume.
-
-4. Do NOT invent experience, projects, skills, education, certifications or achievements.
-
-5. Identify genuine weaknesses.
-
-6. Give practical recommendations.
-
-7. Identify missing keywords relevant to the resume.
-
-8. Identify skill gaps only when they are genuinely missing or weak.
-
-9. Rewrite weak resume bullets when appropriate.
-
-10. If information is missing from the resume, explicitly mention that it is missing.
-
-11. resumeName should be the name of the person from the resume if available. Otherwise use "Resume".
-
-12. Return JSON only.
-
+1. Every score must be an integer between 0 and 100.
+2. "resumeName" must be a clean, human-readable name for the candidate (for example: "Alex Mercer — Full-Stack Developer", or "Sarah Jenkins Resume").
+3. "metrics" must contain all 6 categories: ats, skills, experience, projects, education, formatting.
+4. "strengths" must contain 3-5 clear bullet points highlighting what the candidate did well.
+5. "criticalIssues" must contain 2-4 critical weaknesses that hurt the resume.
+6. "recommendations" must contain 3-5 actionable improvement suggestions.
+7. "missingKeywords" must contain 4-8 important industry/role keywords absent from the resume.
+8. "skillGaps" must contain 3-6 relevant skills or technologies the candidate should consider adding.
+9. "weakBullets" must contain 2-4 specific weak bullet points found in the resume, why each is weak, and a rewritten, stronger version with measurable impact.
+10. If the resume is missing sections (like projects or education), assign an appropriate score and explain the missing elements in recommendations.
+11. Be realistic and constructive in your evaluation.
+12. Return ONLY the JSON object. Do not add explanations before or after.
 13. Do not use markdown.
-
 14. Do not put the JSON inside a code block.
 `;
 

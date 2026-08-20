@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { GoogleGenAI } from "@google/genai"
 import { createClient } from "@/lib/supabase/server"
+import { checkRateLimit, getClientIdentifier } from "@/lib/rate-limit"
 import type { BulletImprovement, ResumeAnalysis, WeakBullet } from "@/lib/types"
 
 const apiKey = process.env.GEMINI_API_KEY
@@ -52,6 +53,28 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "You must be signed in to generate resume improvements." },
         { status: 401 }
+      )
+    }
+
+    // Rate Limiting: max 20 requests per minute (60s)
+    const clientKey = getClientIdentifier(request, user.id)
+    const rateCheck = checkRateLimit({
+      key: `improve:${clientKey}`,
+      limit: 20,
+      windowSeconds: 60,
+    })
+
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: `Rate limit exceeded. Maximum 20 rewrites per minute. Please try again in ${rateCheck.resetInSeconds} seconds.`,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateCheck.resetInSeconds),
+          },
+        }
       )
     }
 
