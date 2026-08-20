@@ -6,7 +6,7 @@ const STEPS = [
     step: "Step 1",
     title: "Upload your resume",
     description:
-      "Drop in a PDF or DOCX. ResumeIQ instantly extracts and structures every section.",
+      "Drop in your PDF resume. ResumeIQ instantly extracts and structures every section.",
   },
   {
     icon: ScanSearchIcon,

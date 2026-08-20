@@ -46,7 +46,7 @@ export const PRIORITY_IMPROVEMENTS: Improvement[] = [
 export const RECENT_ANALYSES: RecentAnalysis[] = [
   { id: "ra-1", resumeName: "Senior_Frontend_2026.pdf", createdAt: "2026-08-14", score: 84 },
   { id: "ra-2", resumeName: "Product_Designer_v3.pdf", createdAt: "2026-08-09", score: 77 },
-  { id: "ra-3", resumeName: "Fullstack_Engineer.docx", createdAt: "2026-08-02", score: 71 },
+  { id: "ra-3", resumeName: "Fullstack_Engineer.pdf", createdAt: "2026-08-02", score: 71 },
 ]
 
 export const RECOMMENDED_JOBS: RecommendedJob[] = [

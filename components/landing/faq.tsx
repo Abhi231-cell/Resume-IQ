@@ -8,7 +8,7 @@ import {
 const FAQS = [
   {
     q: "What file formats can I upload?",
-    a: "ResumeIQ accepts PDF and DOCX files. We extract the text and structure while preserving the meaning of each section.",
+    a: "ResumeIQ accepts PDF files up to 10MB. We extract the text and structure while preserving the meaning of each section.",
   },
   {
     q: "How does the ATS score work?",
